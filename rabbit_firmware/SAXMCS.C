@@ -3,6 +3,8 @@
     Switching assembly rabbit control firmware. Previously pulse_gen.c
     Coded up by John Test   (CfA) Aug 2013.
     Modified by Danny Price (CfA) Dec 2013.
+    Modified by John Test   (CfA) Nov 2014.
+    Modified by Danny Price (CfA) Apr 2015.
 
     Based off:
     Samples\SPI\spi_test.c
@@ -39,10 +41,17 @@
 #define MY_NAMESERVER       "192.100.16.2"
 
 // CfA IP config
-//#define _PRIMARY_STATIC_IP  "131.142.12.62"
+//#define _PRIMARY_STATIC_IP  "131.142.12.79"
 //#define _PRIMARY_NETMASK    "255.255.248.0"
 //#define MY_GATEWAY          "131.142.8.1"
 //#define MY_NAMESERVER       "131.142.10.1"
+
+//Laptop local
+//#define _PRIMARY_STATIC_IP  "192.168.1.102"
+//#define _PRIMARY_NETMASK    "255.255.255.0"
+//#define MY_GATEWAY          "192.168.1.1"
+//#define MY_NAMESERVER       "0.0.0.0"
+
 
 #use "costate.lib"
 #use "dcrtcp.lib"
@@ -50,12 +59,14 @@
 #memmap xmem
 
 #define PORT 1738
+//#define PORT 3023
 #define TRUE 1
 #define FALSE 0
 #define DS2_BIT 2
 #define DS3_BIT 3
 #define S2_BIT  4
 #define S3_BIT  5
+
 
 /* the default mime type for '/' must be first */
 void my_isr0();
@@ -69,21 +80,36 @@ void enable_isr1( void );
 void hold_pattern( void );
 void hold_pattern_hot( void );
 void hold_pattern_cold( void );
+void hold_pattern_a( void );
+void hold_pattern_b( void );
+void hold_pattern_c( void );
 void switch_mode( void );
 void cycle_switch( void );
+void off_state( void );
+void read_state( void );
 
 char str_start[] = "start";
 char str_stop[]  = "stop";
+char str_off[]   = "off";
 char str_hold[]  = "hold";
 char str_hot[]   = "hold_hot";
 char str_cold[]  = "hold_cold";
-char str_sky[]   = "hold_sky";
+char str_a[]   = "hold_a";
+char str_b[] = "hold_b";
+char str_c[]  = "hold_c";
+char str_state[] = "state";
+char set_waits[] = "set_waits";
 int count;
 int index;
 int switch_enable;
 int line_out[] = {0, 2, 4};
+int wait_vals[3];
 int int1;
 int int2;
+int wait_a;
+int wait_b;
+int wait_c;
+char message2[512] = {0};
 
 tcp_Socket socket, socket2;
 
@@ -102,6 +128,8 @@ void main()
    char IF_num[10];
    int bytes_read, isafloat;
    char *result;
+   char *mybuff;
+   char *s1;
 
    brdInit();
    sock_init_or_exit(1);
@@ -112,6 +140,12 @@ void main()
    count = 0;
    index = 0;
    switch_enable = 0;
+   wait_a = 1;
+   wait_b = 1;
+   wait_c = 1;
+   wait_vals[0] = 1;
+   wait_vals[1] = 1;
+   wait_vals[2] = 1;
 
    /************************************************************************/
    /************************************************************************/
@@ -128,13 +162,9 @@ void main()
             isafloat = 0;
             if(bytes_read>0) {
                 buffer[bytes_read]=0;
-                //     printf("%s",buffer);
+            //    printf("%s",buffer);
             result = buffer;
             result[strcspn(result,"\n")] = '\0';
-            //   printf("result size is %d\n", strlen(result));
-            //   parse_input(result);
-            //   my_input = (strtok(result, " "));
-            //   printf("The input is %s\n", result);
            if (strcmp(result, str_start) == 0){
             /*  if (int2 == 1)
                  disable_isr1();   */
@@ -148,40 +178,30 @@ void main()
            message[0] = '\0';
          //     printf("Stop walshing\n");
          //     disable_isr();
-           
+
         /*********  enable the isr register to read 1 pps  */
           }
            else if(strcmp(result, str_stop) == 0){
            //   printf("enabling \n");  a
               if(int1 == 1)
                  disable_isr();
-             /* if (int2 == 0)
-                 enable_isr1();  */
-              strcat(message, "switch enabled\n");
+              strcat(message, "no manual switch\+n");
               sock_fastwrite(&socket,message,512);
               message[0] = '\0';
-                 switch_enable = 1;
-                 switch_mode();
-             /* strcat(message, "switch enabled\n");
-              sock_fastwrite(&socket,message,512);
-              message[0] = '\0';          */
-           // disable the isr
+             //    switch_enable = 1;
+             //    switch_mode();
            }
            else if(strcmp(result, str_hold) == 0){
-             //  printf("reset, wait for SOW");
-             //  disable_isr();
-             //  enable_isr1();
-             // disable the isr.  Set the read to the pushbutton
              strcat(message, "hold enabled\n");
              sock_fastwrite(&socket,message,512);
              message[0] = '\0';
              hold_pattern();
            }
-           else if(strcmp(result, str_sky) == 0){
-             strcat(message, "hold sky enabled\n");
+           else if(strcmp(result, str_a) == 0){
+             strcat(message, "hold a state\n");
              sock_fastwrite(&socket,message,512);
              message[0] = '\0';
-             hold_pattern();
+             hold_pattern_a();
            }
            else if(strcmp(result, str_cold) == 0){
              strcat(message, "hold cold enabled\n");
@@ -194,6 +214,44 @@ void main()
              sock_fastwrite(&socket,message,512);
              message[0] = '\0';
              hold_pattern_hot();
+           }
+           else if(strcmp(result, str_b) == 0){
+             strcat(message, "hold b state\n");
+             sock_fastwrite(&socket,message,512);
+             message[0] = '\0';
+             hold_pattern_b();
+           }
+           else if(strcmp(result, str_c) == 0){
+             strcat(message, "hold c state\n");
+             sock_fastwrite(&socket,message,512);
+             message[0] = '\0';
+             hold_pattern_c();
+           }
+            else if(strcmp(result, str_off) == 0){
+             strcat(message, "off state\n");
+             sock_fastwrite(&socket,message,512);
+             message[0] = '\0';
+             off_state();
+           }
+           else if(strcmp(result, str_state) == 0){
+            // strcat(message, "off state\n");
+            // sock_fastwrite(&socket,message,512);
+            // message[0] = '\0';
+             read_state();
+           }
+           else if((result[0] == 's') && (result[4] == 'w')){
+             strcat(message, "setting wait times\n");
+             sock_fastwrite(&socket,message,512);
+             message[0] = '\0';
+             disable_isr();
+             printf("%s\n", buffer);
+             sscanf(buffer, "%s %d %d %d", &mybuff, &wait_vals[0], &wait_vals[1],&wait_vals[2]);
+             printf("the waits are %d %d %d\n", wait_vals[0], wait_vals[1], wait_vals[2]);
+             wait_a = wait_vals[0];
+             wait_b = wait_vals[1];
+             wait_c = wait_vals[2];
+             enable_isr();
+
            }
            else
            {
@@ -222,7 +280,7 @@ void setup_isr0( void )
     SetVectExtern(0, GetVectExtern(0));
     SetVectExtern(1, GetVectExtern(1));
     //    SetVectExtern3000(1, GetVectExtern3000(1));
-    
+
     WrPortI(I0CR, &I0CRShadow, 0x09);
     WrPortI(I1CR, &I1CRShadow, 0x00);
     int1 = 1;
@@ -251,58 +309,82 @@ void setup_isr1( void )
     // WrPortE(PADR, &PADRShadow, line_out[index]);
     if (index == 0)
     {
-     BitWrPortI(PADR, &PADRShadow, 1, 0);
+     BitWrPortI(PADR, &PADRShadow, 0, 0);
      BitWrPortI(PADR, &PADRShadow, 0, 1);
-     BitWrPortI(PADR, &PADRShadow, 0, 2);
+     if (wait_a != wait_vals[0])
+     {
+      wait_a += 1;
+    //  printf("index = 0 wait = %d\n", wait_a);
+     }
+     else
+     {
+     wait_a = 1;
      index += 1;
+     }
+
+     // index += 1;
     }
     else if (index == 1)
     {
-     BitWrPortI(PADR, &PADRShadow, 0, 0);
-     BitWrPortI(PADR, &PADRShadow, 1, 1);
-     BitWrPortI(PADR, &PADRShadow, 0, 2);
+     BitWrPortI(PADR, &PADRShadow, 1, 0);
+     BitWrPortI(PADR, &PADRShadow, 0, 1);
+
+     if(wait_b != wait_vals[1])
+     {
+      wait_b += 1;
+     }
+     else
+     {
+     wait_b = 1;
      index += 1;
+     }
+
     }
     else if (index == 2)
     {
      BitWrPortI(PADR, &PADRShadow, 0, 0);
-     BitWrPortI(PADR, &PADRShadow, 0, 1);
-     BitWrPortI(PADR, &PADRShadow, 1, 2);
-     index = 0;
+     BitWrPortI(PADR, &PADRShadow, 1, 1);
+     if(wait_c != wait_vals[2])
+     {
+      wait_c += 1;
+     }
+     else
+     {
+      wait_c = 1;
+      index = 0;
+     }
     }
-    else
-     index += 1;
+  //  else
+  //   index += 1;
 }
 
  nodebug root interrupt void my_isr1()
 {
- //   printf("I have seen SOW interrupt\n"); 
+ //   printf("I have seen SOW interrupt\n");
  //   count1 += 1;
  //   char message[512] = {0};
  //   WrPortI(PADR, &PADRShadow, 0x04);
  //   printf("send 0x%x to port a\n", line_out[index]);
  //   BitWrPortI(PEDR, &PEDRShadow, 1, 0);
  //   WrPortE(PADR, &PADRShadow, line_out[index]);
-    
+
   if (index == 0)
   {
-   BitWrPortI(PADR, &PADRShadow, 1, 0);
+   wait_a = 0;
+   BitWrPortI(PADR, &PADRShadow, 0, 0);
    BitWrPortI(PADR, &PADRShadow, 0, 1);
-   BitWrPortI(PADR, &PADRShadow, 0, 2);
    index += 1;
   }
   else if (index == 1)
   {
-     BitWrPortI(PADR, &PADRShadow, 0, 0);
-     BitWrPortI(PADR, &PADRShadow, 1, 1);
-     BitWrPortI(PADR, &PADRShadow, 0, 2);
+     BitWrPortI(PADR, &PADRShadow, 1, 0);
+     BitWrPortI(PADR, &PADRShadow, 0, 1);
      index += 1;
   }
   else if (index == 2)
   {
       BitWrPortI(PADR, &PADRShadow, 0, 0);
-     BitWrPortI(PADR, &PADRShadow, 0, 1);
-     BitWrPortI(PADR, &PADRShadow, 1, 2);
+     BitWrPortI(PADR, &PADRShadow, 1, 1);
       index = 0;
 
   }
@@ -318,6 +400,11 @@ WrPortI(I0CR, &I0CRShadow, 0x00);
 // WrPortI(I0CR, &I0CRShadow, 0x00);
 
 //  started = 0;
+if (index != 0)
+   index -= 1;
+else
+   index = 0;
+
 int1 = 0;
 }
 
@@ -326,6 +413,10 @@ void disable_isr1( void )
 //printf("int1 count is %d\n", count1);
 WrPortI(I1CR, &I1CRShadow, 0x00);
 int2 = 0;
+if(index != 0)
+   index -= 1;
+else
+   index = 0;
 // started = 0;
 }
 
@@ -390,7 +481,54 @@ void hold_pattern_hot( void )
    BitWrPortI(PADR, &PADRShadow, 1, 2);
 
 }
+void hold_pattern_a( void )
+{
 
+//   if (int1 == 1)
+     disable_isr();
+ //  if (int2 == 1)
+  //   disable_isr1();
+
+   BitWrPortI(PADR, &PADRShadow, 0, 0);
+   BitWrPortI(PADR, &PADRShadow, 0, 1);
+
+}
+void hold_pattern_b( void )
+{
+
+   if (int1 == 1)
+     disable_isr();
+   if (int2 == 1)
+     disable_isr1();
+
+   BitWrPortI(PADR, &PADRShadow, 1, 0);
+   BitWrPortI(PADR, &PADRShadow, 0, 1);
+
+}
+void hold_pattern_c( void )
+{
+
+   if (int1 == 1)
+     disable_isr();
+   if (int2 == 1)
+     disable_isr1();
+
+   BitWrPortI(PADR, &PADRShadow, 0, 0);
+   BitWrPortI(PADR, &PADRShadow, 1, 1);
+
+}
+void off_state( void )
+{
+
+   if (int1 == 1)
+     disable_isr();
+   if (int2 == 1)
+     disable_isr1();
+
+   BitWrPortI(PADR, &PADRShadow, 1, 0);
+   BitWrPortI(PADR, &PADRShadow, 1, 1);
+
+}
 void switch_mode( void )
 {
    auto int sw2, sw3, led2, led3;
@@ -479,4 +617,28 @@ void cycle_switch ( void )
   }
   else
       index += 1;
+}
+void read_state( void )
+{
+
+   if(index == 0)
+   {
+    strcat(message2, "a\n");
+    sock_fastwrite(&socket,message2,512);
+    message2[0] = '\0';
+   }
+   else if(index == 1)
+   {
+    strcat(message2, "b\n");
+    sock_fastwrite(&socket,message2,512);
+    message2[0] = '\0';
+   }
+   else if(index == 2)
+   {
+    strcat(message2, "c\n");
+    sock_fastwrite(&socket,message2,512);
+    message2[0] = '\0';
+   }
+
+
 }
