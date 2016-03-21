@@ -1,0 +1,6 @@
+*.mdl filter=lfs diff=lfs merge=lfs -text
+*.slx filter=lfs diff=lfs merge=lfs -text
+*.bof filter=lfs diff=lfs merge=lfs -text
+*.bof.tar.gz filter=lfs diff=lfs merge=lfs -text
+*.ngc filter=lfs diff=lfs merge=lfs -text
+*.ngd filter=lfs diff=lfs merge=lfs -text
